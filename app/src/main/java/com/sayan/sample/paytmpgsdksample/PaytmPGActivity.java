@@ -9,14 +9,23 @@ import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.view.View;
 import android.widget.Toast;
 
 import com.paytm.pgsdk.PaytmClientCertificate;
 import com.paytm.pgsdk.PaytmOrder;
 import com.paytm.pgsdk.PaytmPGService;
 import com.paytm.pgsdk.PaytmPaymentTransactionCallback;
+import com.sayan.sample.paytmpgsdksample.PatmPGsdk.InterceptorHTTPClientCreator;
+import com.sayan.sample.paytmpgsdksample.PatmPGsdk.PatmPGsdk;
+import com.sayan.sample.paytmpgsdksample.PatmPGsdk.Service;
+import com.sayan.sample.paytmpgsdksample.models.GeneratePaytmChecksomeResponse;
 
 import java.util.HashMap;
+
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 import static com.sayan.sample.paytmpgsdksample.Constants.SMS_REQUEST_CODE;
 
@@ -30,46 +39,36 @@ public class PaytmPGActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_paytm_pg);
-        getSMSPermissionStatusAndPay();
     }
 
-    private void getSMSPermissionStatusAndPay() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS}, SMS_REQUEST_CODE);
-        } else {
-            // permission already granted
-            afterSMSPermissionGranted();
-        }
+    public void onClickPay(View view) {
+        InterceptorHTTPClientCreator.createInterceptorHTTPClient(getApplicationContext());
+        Service service = new PatmPGsdk.Builder().build(this).getService();
+        service.generatePaytmChecksome("order1", "100.00", "cust_1001")
+                .enqueue(new Callback<GeneratePaytmChecksomeResponse>() {
+                    @Override
+                    public void onResponse(Call<GeneratePaytmChecksomeResponse> call, Response<GeneratePaytmChecksomeResponse> response) {
+                        if (response.isSuccessful()) {
+                            if (response.body().getResult().equalsIgnoreCase("success")) {
+                                initiatePayment(response.body());
+                            } else {
+                                Toast.makeText(PaytmPGActivity.this, "Something is not right", Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            Toast.makeText(PaytmPGActivity.this, "Something is not right", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<GeneratePaytmChecksomeResponse> call, Throwable t) {
+                        Toast.makeText(PaytmPGActivity.this, "Something is not right", Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String permissions[], @NonNull int[] grantResults) {
-        switch (requestCode) {
-            case SMS_REQUEST_CODE: {
-                if (grantResults.length > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    // permission was granted
-                    afterSMSPermissionGranted();
-                } else {
-                    new AlertDialog.Builder(this).setMessage("SMS Permission not granted")
-                            .setTitle("SMS Permission")
-                            .setPositiveButton("Ask again", new DialogInterface.OnClickListener() {
-                                @Override
-                                public void onClick(DialogInterface dialog, int which) {
-                                    getSMSPermissionStatusAndPay();
-                                }
-                            })
-                            .show();
-                }
-                break;
-            }
-        }
-    }
-
-
-    private void afterSMSPermissionGranted() {
+    private void initiatePayment(GeneratePaytmChecksomeResponse responseBody) {
         PaytmPGService paytmPGService = initializePaytmPGService();
-        PaytmOrder newOrder = createNewOrder();
+        PaytmOrder newOrder = createNewOrder(responseBody);
       /*  //TODO Optional
         generatePaytmClientCentificate();   //for handshaking purpose use this with server's SSL certificate*/
         paytmPGService.initialize(newOrder, null);  //pass the PaytmClientCentificate here for using handshaking
@@ -80,25 +79,31 @@ public class PaytmPGActivity extends AppCompatActivity {
         paytmPGService.startPaymentTransaction(this, true, true, new PaytmPaymentTransactionCallback() {
             /*Call Backs*/
             public void someUIErrorOccurred(String inErrorMessage) {
-                Toast.makeText(PaytmPGActivity.this, inErrorMessage, Toast.LENGTH_LONG).show();
+                ViewUtil.showAlertDialog(PaytmPGActivity.this, inErrorMessage);
             }
+
             public void onTransactionResponse(Bundle inResponse) {
-                Toast.makeText(PaytmPGActivity.this, "onTransactionResponse: " + inResponse.toString(), Toast.LENGTH_LONG).show();
+                ViewUtil.showAlertDialog(PaytmPGActivity.this, "onTransactionResponse:=> " + inResponse.toString());
             }
+
             public void networkNotAvailable() {
-                Toast.makeText(PaytmPGActivity.this, "networkNotAvailable", Toast.LENGTH_LONG).show();
+                ViewUtil.showAlertDialog(PaytmPGActivity.this, "networkNotAvailable");
             }
+
             public void clientAuthenticationFailed(String inErrorMessage) {
-                Toast.makeText(PaytmPGActivity.this, inErrorMessage, Toast.LENGTH_LONG).show();
+                ViewUtil.showAlertDialog(PaytmPGActivity.this, inErrorMessage);
             }
+
             public void onErrorLoadingWebPage(int iniErrorCode, String inErrorMessage, String inFailingUrl) {
-                Toast.makeText(PaytmPGActivity.this, inErrorMessage, Toast.LENGTH_LONG).show();
+                ViewUtil.showAlertDialog(PaytmPGActivity.this, inErrorMessage + "\nFailingURL:=> " + inFailingUrl);
             }
+
             public void onBackPressedCancelTransaction() {
-                Toast.makeText(PaytmPGActivity.this, "canceled by back pressed", Toast.LENGTH_LONG).show();
+                ViewUtil.showAlertDialog(PaytmPGActivity.this, "canceled by back pressed");
             }
+
             public void onTransactionCancel(String inErrorMessage, Bundle inResponse) {
-                Toast.makeText(PaytmPGActivity.this, inErrorMessage, Toast.LENGTH_LONG).show();
+                ViewUtil.showAlertDialog(PaytmPGActivity.this, "onTransactionCancel:=> " + inErrorMessage);
             }
         });
     }
@@ -120,22 +125,22 @@ public class PaytmPGActivity extends AppCompatActivity {
     }
 
     //All the values are static and hard coded here. pass the values through method params using the HashMap
-    private PaytmOrder createNewOrder() {
+    private PaytmOrder createNewOrder(GeneratePaytmChecksomeResponse responseBody) {
         HashMap<String, String> paramMap = new HashMap<String, String>();
         // Key in your staging and production MID available in your dashboard
-        paramMap.put("MID", "rxazcv89315285244163");
-        paramMap.put("ORDER_ID", "order1");
-        paramMap.put("CUST_ID", "cust123");
-        paramMap.put("MOBILE_NO", "7777777777");
-        paramMap.put("EMAIL", "username@emailprovider.com");
-        paramMap.put("CHANNEL_ID", "WAP");
-        paramMap.put("TXN_AMOUNT", "100.12");
+        paramMap.put("MID", responseBody.getData().getMID());
+        paramMap.put("ORDER_ID", responseBody.getData().getORDERID());
+        paramMap.put("CUST_ID", responseBody.getData().getCUSTID());
+        paramMap.put("MOBILE_NO", responseBody.getData().getMOBILENO());
+        paramMap.put("EMAIL", responseBody.getData().getEMAIL());
+        paramMap.put("CHANNEL_ID", responseBody.getData().getCHANNELID());
+        paramMap.put("TXN_AMOUNT", responseBody.getData().getTXNAMOUNT());
         // This is the staging value. Production value is available in your dashboard
-        paramMap.put("WEBSITE", "WEBSTAGING");
+        paramMap.put("WEBSITE", responseBody.getData().getWEBSITE());
         // This is the staging value. Production value is available in your dashboard
-        paramMap.put("INDUSTRY_TYPE_ID", "Retail");
-        paramMap.put("CALLBACK_URL", "https://securegw-stage.paytm.in/theia/paytmCallback?ORDER_ID=order1");
-        paramMap.put("CHECKSUMHASH", "w2QDRMgp1234567JEAPCIOmNgQvsi+BhpqijfM9KvFfRiPmGSt3Ddzw+oTaGCLneJwxFFq5mqTMwJXdQE2EzK4px2xruDqKZjHupz9yXev4=");
+        paramMap.put("INDUSTRY_TYPE_ID", responseBody.getData().getINDUSTRYTYPEID());
+        paramMap.put("CALLBACK_URL", responseBody.getData().getCALLBACKURL());
+        paramMap.put("CHECKSUMHASH", responseBody.getChecksomeHASH());
         return new PaytmOrder(paramMap);
     }
 
